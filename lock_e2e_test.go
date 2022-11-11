@@ -77,6 +77,57 @@ func TestClient_TryLock_e2e(t *testing.T) {
 	}
 }
 
+func TestLock_Unlock_e2e(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "127.0.0.1:6379",
+	})
+	c := NewClient(rdb)
+	c.Wait()
+
+	testCases := []struct {
+		name    string
+		lock    *Lock
+		key     string
+		wantErr error
+		before  func()
+		after   func()
+	}{
+		{
+			name: "unlocked",
+			key:  "unlocked-key",
+			lock: func() *Lock {
+				l, err := c.TryLock(context.Background(), "unlocked-key", time.Minute)
+				require.NoError(t, err)
+				return l
+			}(),
+			before: func() {
+
+			},
+			after: func() {
+				res, err := rdb.Exists(context.Background(), "unlocked-key").Result()
+				require.NoError(t, err)
+				require.Equal(t, 1, res)
+			},
+		},
+		{
+			name:    "unlocked no exist",
+			key:     "not-hold-key",
+			lock:    newLock(c.client, "not-hold-key", "123"),
+			wantErr: ErrLockNotHold,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.lock.Unlock(context.Background(), tc.key)
+			assert.Equal(t, tc.wantErr, err)
+			if err != nil {
+				return
+			}
+		})
+	}
+}
+
 func (c *Client) Wait() {
 	for c.client.Ping(context.Background()).Err() != nil {
 	}
